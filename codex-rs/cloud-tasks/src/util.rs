@@ -41,12 +41,12 @@ pub fn normalize_base_url(input: &str) -> String {
     base_url
 }
 
-/// Validate the destination before loading saved ChatGPT credentials, including in mock mode:
-/// environment discovery still makes authenticated HTTP requests when the task backend is mocked.
+/// Validate the configured destination before loading saved ChatGPT credentials, including in mock
+/// mode: environment discovery still makes authenticated requests when the task backend is mocked.
 pub(crate) fn validate_chatgpt_base_url(input: &str) -> anyhow::Result<String> {
     let invalid_url = || {
         anyhow::anyhow!(
-            "CODEX_CLOUD_TASKS_BASE_URL must use a trusted HTTPS origin on port 443, without user information, a query, or a fragment; custom backends cannot use saved ChatGPT credentials"
+            "CODEX_CLOUD_TASKS_BASE_URL must use HTTPS, without user information, a query, or a fragment"
         )
     };
     let uri = input.parse::<http::Uri>().map_err(|_| invalid_url())?;
@@ -56,15 +56,8 @@ pub(crate) fn validate_chatgpt_base_url(input: &str) -> anyhow::Result<String> {
         .as_str()
         .to_ascii_lowercase();
     if uri.scheme_str() != Some("https")
-        || !matches!(
-            authority.as_str(),
-            "chatgpt.com"
-                | "chatgpt.com:443"
-                | "chat.openai.com"
-                | "chat.openai.com:443"
-                | "chatgpt-staging.com"
-                | "chatgpt-staging.com:443"
-        )
+        || uri.host().is_none_or(str::is_empty)
+        || authority.contains('@')
         || uri.query().is_some()
         || input.contains('#')
     {
@@ -174,6 +167,62 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::normalize_base_url;
+    use super::validate_chatgpt_base_url;
+
+    #[test]
+    fn validate_chatgpt_base_url_accepts_configured_https_backends() {
+        for (input, expected) in [
+            ("https://chatgpt.com", "https://chatgpt.com/backend-api"),
+            (
+                "https://chat.openai.com:443/",
+                "https://chat.openai.com:443/backend-api",
+            ),
+            (
+                "https://chatgpt-staging.com/backend-api/",
+                "https://chatgpt-staging.com/backend-api",
+            ),
+            (
+                "https://proxy.example/backend-api/",
+                "https://proxy.example/backend-api",
+            ),
+            (
+                "https://proxy.example:8443/backend-api/",
+                "https://proxy.example:8443/backend-api",
+            ),
+            (
+                "https://127.0.0.1:8443/backend-api/",
+                "https://127.0.0.1:8443/backend-api",
+            ),
+            (
+                "https://[::1]:8443/backend-api/",
+                "https://[::1]:8443/backend-api",
+            ),
+        ] {
+            assert_eq!(validate_chatgpt_base_url(input).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn validate_chatgpt_base_url_rejects_invalid_destinations() {
+        for input in [
+            "",
+            "proxy.example/backend-api",
+            "https:///backend-api",
+            "https://:443/backend-api",
+            "http://proxy.example/backend-api",
+            "ftp://proxy.example/backend-api",
+            "https://user@proxy.example/backend-api",
+            "https://user:pass@proxy.example/backend-api",
+            "https://proxy.example/backend-api?key=value",
+            "https://proxy.example/backend-api#fragment",
+            "https://proxy.example/backend-api ",
+        ] {
+            assert!(
+                validate_chatgpt_base_url(input).is_err(),
+                "input: {input:?}"
+            );
+        }
+    }
 
     #[test]
     fn normalize_base_url_normalizes_urls() {

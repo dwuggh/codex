@@ -604,10 +604,15 @@ fn effective_mcp_servers_require_catalog_registration() {
 }
 
 #[test]
-fn effective_mcp_servers_preserve_chatgpt_auth_for_staging() {
+fn effective_mcp_servers_preserve_chatgpt_auth_for_configured_backend() {
     for url in [
         "https://chatgpt-staging.com",
         "https://preview.chatgpt-staging.com",
+        "https://proxy.example/backend-api/",
+        "https://proxy.example:8443/backend-api/",
+        "https://gov.chatgpt.com/backend-api/",
+        "http://127.0.0.1:8080/backend-api/",
+        "http://[::1]:8080/backend-api/",
     ] {
         let mut config = test_mcp_config(PathBuf::new());
         config.chatgpt_base_url = url.to_string();
@@ -616,15 +621,46 @@ fn effective_mcp_servers_preserve_chatgpt_auth_for_staging() {
         );
         let mut catalog = ResolvedMcpCatalog::builder();
         catalog.register(McpServerRegistration::from_config(
-            "staging".to_string(),
+            "backend".to_string(),
             server.clone(),
         ));
         config.mcp_server_catalog = catalog.build();
-        let configured = HashMap::from([("staging".to_string(), server)]);
+        let configured = HashMap::from([("backend".to_string(), server)]);
         let effective =
             effective_mcp_servers_from_configured(configured, &config, /*auth*/ None);
 
-        assert_eq!(effective["staging"].config().auth, McpServerAuth::ChatGpt);
+        assert_eq!(effective["backend"].config().auth, McpServerAuth::ChatGpt);
+    }
+}
+
+#[test]
+fn effective_mcp_servers_downgrade_chatgpt_auth_for_other_origins() {
+    let mut config = test_mcp_config(PathBuf::new());
+    config.chatgpt_base_url = "https://proxy.example:8443/backend-api/".to_string();
+    for url in [
+        "https://other.example:8443/backend-api/",
+        "https://proxy.example.evil.test:8443/backend-api/",
+        "https://sub.proxy.example:8443/backend-api/",
+        "https://proxy.example/backend-api/",
+        "http://proxy.example:8443/backend-api/",
+        "ftp://proxy.example:8443/backend-api/",
+    ] {
+        let server = codex_apps_mcp_server_config(
+            url, /*apps_mcp_product_sku*/ None, /*originator*/ None,
+        );
+        let mut catalog = ResolvedMcpCatalog::builder();
+        catalog.register(McpServerRegistration::from_config(
+            "other".to_string(),
+            server.clone(),
+        ));
+        config.mcp_server_catalog = catalog.build();
+        let effective = effective_mcp_servers_from_configured(
+            HashMap::from([("other".to_string(), server)]),
+            &config,
+            /*auth*/ None,
+        );
+
+        assert_eq!(effective["other"].config().auth, McpServerAuth::OAuth);
     }
 }
 

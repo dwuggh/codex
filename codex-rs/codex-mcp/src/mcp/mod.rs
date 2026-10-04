@@ -379,12 +379,11 @@ fn is_trusted_chatgpt_mcp_server(
 
     url::Url::parse(chatgpt_base_url)
         .ok()
-        .is_some_and(|staging_url| {
-            staging_url.scheme() == "https"
-                && staging_url.domain().is_some_and(|host| {
-                    host == "chatgpt-staging.com" || host.ends_with(".chatgpt-staging.com")
-                })
-                && server_url.origin() == staging_url.origin()
+        .is_some_and(|chatgpt_url| {
+            // The configured backend is an explicit destination for saved ChatGPT auth.
+            // Trust only its exact origin, including the scheme and effective port.
+            matches!(chatgpt_url.scheme(), "http" | "https")
+                && server_url.origin() == chatgpt_url.origin()
         })
 }
 
