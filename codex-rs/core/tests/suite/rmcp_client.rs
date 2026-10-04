@@ -4022,19 +4022,19 @@ async fn streamable_http_configured_auth_precedes_chatgpt_auth() -> anyhow::Resu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn streamable_http_chatgpt_auth_is_not_sent_to_other_origins() -> anyhow::Result<()> {
+async fn streamable_http_chatgpt_auth_is_not_sent_to_configured_origin() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = responses::start_mock_server().await;
     let untrusted_server = MockServer::start().await;
     let untrusted_apps = AppsTestServer::mount(&untrusted_server).await?;
     let untrusted_mcp_url = format!("{}/api/codex/ps/mcp", untrusted_apps.chatgpt_base_url);
-    let configured_chatgpt_base_url = server.uri();
+    let untrusted_chatgpt_base_url = untrusted_apps.chatgpt_base_url;
 
     let fixture = test_codex()
         .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(move |config| {
-            config.chatgpt_base_url = configured_chatgpt_base_url;
+            config.chatgpt_base_url = untrusted_chatgpt_base_url;
             insert_mcp_server(
                 config,
                 "untrusted_origin",
@@ -4086,14 +4086,14 @@ async fn streamable_http_chatgpt_auth_is_not_sent_to_other_origins() -> anyhow::
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn configured_chatgpt_base_url_grants_mcp_chatgpt_auth() -> anyhow::Result<()> {
+async fn configured_chatgpt_base_url_does_not_grant_mcp_chatgpt_auth() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = responses::start_mock_server().await;
-    let backend_server = MockServer::start().await;
-    let apps = AppsTestServer::mount(&backend_server).await?;
-    let mcp_url = format!("{}/api/codex/ps/mcp", apps.chatgpt_base_url);
-    let chatgpt_base_url = apps.chatgpt_base_url;
+    let untrusted_server = MockServer::start().await;
+    let untrusted_apps = AppsTestServer::mount(&untrusted_server).await?;
+    let untrusted_mcp_url = format!("{}/api/codex/ps/mcp", untrusted_apps.chatgpt_base_url);
+    let untrusted_chatgpt_base_url = untrusted_apps.chatgpt_base_url;
 
     let fixture = test_codex()
         .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
@@ -4102,21 +4102,21 @@ async fn configured_chatgpt_base_url_grants_mcp_chatgpt_auth() -> anyhow::Result
                 codex_home.join("config.toml"),
                 format!(
                     r#"
-chatgpt_base_url = "{chatgpt_base_url}"
+chatgpt_base_url = "{untrusted_chatgpt_base_url}"
 
-[mcp_servers.configured_origin]
-url = "{mcp_url}"
+[mcp_servers.untrusted_origin]
+url = "{untrusted_mcp_url}"
 auth = "chatgpt"
 "#,
                 ),
             )
-            .expect("write configured backend MCP config");
+            .expect("write attacker-controlled MCP config");
         })
         .build(&server)
         .await?;
 
-    wait_for_mcp_server(&fixture.codex, "configured_origin").await?;
-    let observed_requests = backend_server
+    wait_for_mcp_server(&fixture.codex, "untrusted_origin").await?;
+    let observed_requests = untrusted_server
         .received_requests()
         .await
         .expect("mock server should capture MCP startup requests")
@@ -4130,33 +4130,16 @@ auth = "chatgpt"
                 .get("authorization")
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_string);
-            let account_id = request
-                .headers
-                .get("chatgpt-account-id")
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_string);
-            Some((method, authorization, account_id))
+            Some((method, authorization))
         })
         .collect::<Vec<_>>();
 
     assert_eq!(
         observed_requests,
         vec![
-            (
-                "initialize".to_string(),
-                Some("Bearer Access Token".to_string()),
-                Some("account_id".to_string()),
-            ),
-            (
-                "notifications/initialized".to_string(),
-                Some("Bearer Access Token".to_string()),
-                Some("account_id".to_string()),
-            ),
-            (
-                "tools/list".to_string(),
-                Some("Bearer Access Token".to_string()),
-                Some("account_id".to_string()),
-            ),
+            ("initialize".to_string(), None),
+            ("notifications/initialized".to_string(), None),
+            ("tools/list".to_string(), None),
         ],
     );
 
