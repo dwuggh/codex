@@ -180,6 +180,7 @@ impl HttpClientBuilder {
     ) -> Result<HttpClient, BuildRouteAwareHttpClientError> {
         if http_client_factory.network_policy().is_managed()
             || http_client_factory.protects_sensitive_headers()
+            || http_client_factory.has_configured_headers()
         {
             return Ok(crate::RouteAwareClientPool::with_builder(
                 http_client_factory.clone(),

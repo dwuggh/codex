@@ -396,9 +396,6 @@ pub(crate) fn is_trusted_chatgpt_mcp_server(
         .ok()
         .is_some_and(|staging_url| {
             staging_url.scheme() == "https"
-                && staging_url.domain().is_some_and(|host| {
-                    host == "chatgpt-staging.com" || host.ends_with(".chatgpt-staging.com")
-                })
                 && server_url.origin() == staging_url.origin()
         })
 }

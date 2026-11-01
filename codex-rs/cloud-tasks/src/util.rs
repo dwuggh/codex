@@ -46,7 +46,7 @@ pub fn normalize_base_url(input: &str) -> String {
 pub(crate) fn validate_chatgpt_base_url(input: &str) -> anyhow::Result<String> {
     let invalid_url = || {
         anyhow::anyhow!(
-            "CODEX_CLOUD_TASKS_BASE_URL must use a trusted HTTPS origin on port 443, without user information, a query, or a fragment; custom backends cannot use saved ChatGPT credentials"
+            "CODEX_CLOUD_TASKS_BASE_URL must use HTTPS, without user information, a query, or a fragment"
         )
     };
     let uri = input.parse::<http::Uri>().map_err(|_| invalid_url())?;
@@ -56,15 +56,7 @@ pub(crate) fn validate_chatgpt_base_url(input: &str) -> anyhow::Result<String> {
         .as_str()
         .to_ascii_lowercase();
     if uri.scheme_str() != Some("https")
-        || !matches!(
-            authority.as_str(),
-            "chatgpt.com"
-                | "chatgpt.com:443"
-                | "chat.openai.com"
-                | "chat.openai.com:443"
-                | "chatgpt-staging.com"
-                | "chatgpt-staging.com:443"
-        )
+        || authority.contains('@')
         || uri.query().is_some()
         || input.contains('#')
     {
@@ -80,7 +72,7 @@ pub async fn load_auth_manager(
     chatgpt_base_url: Option<String>,
 ) -> (Option<Arc<AuthManager>>, HttpClientFactory) {
     // TODO: pass in cli overrides once cloud tasks properly support them.
-    let config = match Config::load_with_cli_overrides(Vec::new()).await {
+    let mut config = match Config::load_with_cli_overrides(Vec::new()).await {
         Ok(config) => config,
         Err(error) => {
             append_error_log(format!(
@@ -90,9 +82,12 @@ pub async fn load_auth_manager(
             return (None, http_client_factory);
         }
     };
+    if let Some(base_url) = chatgpt_base_url {
+        config.chatgpt_base_url = base_url;
+    }
     let http_client_factory = config.http_client_factory();
     let mut auth_config = config.auth_config();
-    auth_config.chatgpt_base_url = chatgpt_base_url.or(Some(config.chatgpt_base_url.clone()));
+    auth_config.chatgpt_base_url = Some(config.chatgpt_base_url.clone());
     let auth_manager = match AuthManager::shared_from_auth_config(
         auth_config,
         /*enable_codex_api_key_env*/ false,

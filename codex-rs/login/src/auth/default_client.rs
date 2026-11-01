@@ -225,6 +225,7 @@ pub fn create_client_with_chatgpt_cookies(http_client_factory: &HttpClientFactor
         .without_request_logging();
     if !http_client_factory.network_policy().is_managed()
         && !http_client_factory.protects_sensitive_headers()
+        && !http_client_factory.has_configured_headers()
     {
         return build_default_client(builder);
     }
@@ -278,6 +279,7 @@ fn create_client_for_route_with_builder(
 ) -> Result<HttpClient, BuildRouteAwareHttpClientError> {
     if http_client_factory.network_policy().is_managed()
         || http_client_factory.protects_sensitive_headers()
+        || http_client_factory.has_configured_headers()
     {
         let mut pool = codex_http_client::RouteAwareClientPool::with_builder(
             http_client_factory.clone(),
@@ -397,6 +399,7 @@ pub async fn create_transport_for_routes_async(
         );
         if !http_client_factory.network_policy().is_managed()
             && !http_client_factory.protects_sensitive_headers()
+            && !http_client_factory.has_configured_headers()
             && (transport_default_proxy || sandboxed)
         {
             return ReqwestTransport::from_http_client(create_client());

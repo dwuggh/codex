@@ -107,6 +107,12 @@ impl RouteAwareClientPool {
                     request = RequestDraft { request, headers }.build(&client)?;
                     request_url = request.url().to_string();
                     apply_default_headers(request.headers_mut(), &self.default_headers);
+                    if let Some(headers) = self
+                        .http_client_factory
+                        .configured_headers_for(&current_url)
+                    {
+                        apply_default_headers(request.headers_mut(), headers);
+                    }
                 }
                 let current_url = request.url().clone();
                 if previous_route
@@ -210,6 +216,15 @@ impl RouteAwareClientPool {
             }
             if redirects >= MAX_REDIRECTS {
                 return Err(RouteAwareRequestError::TooManyRedirects);
+            }
+            if current_url.origin() != next_request_url.origin()
+                && let Some(headers) = self
+                    .http_client_factory
+                    .configured_headers_for(&current_url)
+            {
+                for name in headers.keys() {
+                    next_request.headers_mut().remove(name);
+                }
             }
             remove_sensitive_headers(
                 next_request.headers_mut(),

@@ -565,6 +565,7 @@ impl RouteAwareClientPool {
                 == OutboundProxyPolicy::RespectSystemProxy
                 || self.http_client_factory.network_policy().is_managed()
                 || self.http_client_factory.protects_sensitive_headers()
+                || self.http_client_factory.has_configured_headers()
                 || self.rustls_clients.is_some())
     }
 

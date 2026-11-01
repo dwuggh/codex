@@ -170,6 +170,7 @@ pub struct HttpClientFactory {
     protect_sensitive_headers: bool,
     chatgpt_cookie_store: Option<Arc<ChatGptCookieStore>>,
     network_policy: NetworkPolicy,
+    configured_headers: Option<(reqwest::Url, http::HeaderMap)>,
 }
 
 impl PartialEq for HttpClientFactory {
@@ -178,6 +179,7 @@ impl PartialEq for HttpClientFactory {
             && self.system_proxy_fallback == other.system_proxy_fallback
             && self.protect_sensitive_headers == other.protect_sensitive_headers
             && self.network_policy == other.network_policy
+            && self.configured_headers == other.configured_headers
             && self
                 .chatgpt_cookie_store
                 .as_ref()
@@ -211,6 +213,7 @@ impl HttpClientFactory {
             protect_sensitive_headers: false,
             chatgpt_cookie_store: None,
             network_policy: NetworkPolicy::unmanaged(),
+            configured_headers: None,
         }
     }
 
@@ -224,6 +227,34 @@ impl HttpClientFactory {
     /// Whether redirect handling removes sensitive headers when the origin changes.
     pub fn protects_sensitive_headers(&self) -> bool {
         self.protect_sensitive_headers
+    }
+
+    pub fn with_configured_headers(mut self, base_url: &str, headers: http::HeaderMap) -> Self {
+        self.configured_headers = reqwest::Url::parse(base_url)
+            .ok()
+            .filter(|_| !headers.is_empty())
+            .map(|url| (url, headers));
+        self
+    }
+
+    pub fn has_configured_headers(&self) -> bool {
+        self.configured_headers.is_some()
+    }
+
+    pub fn configured_headers_for(&self, url: &reqwest::Url) -> Option<&http::HeaderMap> {
+        let mut url = url.clone();
+        match url.scheme() {
+            "ws" => {
+                let _ = url.set_scheme("http");
+            }
+            "wss" => {
+                let _ = url.set_scheme("https");
+            }
+            _ => {}
+        }
+        self.configured_headers
+            .as_ref()
+            .and_then(|(base_url, headers)| (base_url.origin() == url.origin()).then_some(headers))
     }
 
     /// Carries the account/configuration owner's application policy into every transport.

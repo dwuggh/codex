@@ -1811,7 +1811,11 @@ impl Config {
             OutboundProxyPolicy::ReqwestDefault
         };
         let mut factory = HttpClientFactory::new(outbound_proxy_policy)
-            .with_network_policy(self.application_network_policy.clone());
+            .with_network_policy(self.application_network_policy.clone())
+            .with_configured_headers(
+                &self.chatgpt_base_url,
+                self.model_provider.build_header_map().unwrap_or_default(),
+            );
         if !self.respect_system_proxy && self.features.enabled(Feature::SystemProxyFallback) {
             factory = factory.with_system_proxy_fallback();
         }
@@ -3196,7 +3200,21 @@ pub fn resolve_bootstrap_http_client_factory(
     } else {
         OutboundProxyPolicy::ReqwestDefault
     };
-    let mut factory = HttpClientFactory::new(outbound_proxy_policy);
+    let providers = merge_configured_model_providers(
+        built_in_model_providers(None),
+        cfg.model_providers.clone(),
+    )
+    .map_err(std::io::Error::other)?;
+    let headers = providers
+        .get(cfg.model_provider.as_deref().unwrap_or("openai"))
+        .map(|provider| provider.build_header_map().unwrap_or_default())
+        .unwrap_or_default();
+    let mut factory = HttpClientFactory::new(outbound_proxy_policy).with_configured_headers(
+        cfg.chatgpt_base_url
+            .as_deref()
+            .unwrap_or("https://chatgpt.com/backend-api/"),
+        headers,
+    );
     if outbound_proxy_policy == OutboundProxyPolicy::ReqwestDefault
         && features.enabled(Feature::SystemProxyFallback)
     {
