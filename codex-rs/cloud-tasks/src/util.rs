@@ -169,6 +169,34 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::normalize_base_url;
+    use super::validate_chatgpt_base_url;
+
+    #[test]
+    fn validate_chatgpt_base_url_accepts_custom_https_backends() {
+        for input in [
+            "https://backend.example/backend-api",
+            "https://backend.example:8443/backend-api",
+        ] {
+            assert_eq!(
+                validate_chatgpt_base_url(input).expect("valid custom backend"),
+                input,
+            );
+        }
+    }
+
+    #[test]
+    fn validate_chatgpt_base_url_rejects_insecure_or_ambiguous_urls() {
+        for input in [
+            "http://backend.example/backend-api",
+            "https://user@backend.example/backend-api",
+            "https://user:password@backend.example/backend-api",
+            "https://backend.example/backend-api?query=value",
+            "https://backend.example/backend-api#fragment",
+            "not a URL",
+        ] {
+            assert!(validate_chatgpt_base_url(input).is_err(), "input: {input}");
+        }
+    }
 
     #[test]
     fn normalize_base_url_normalizes_urls() {

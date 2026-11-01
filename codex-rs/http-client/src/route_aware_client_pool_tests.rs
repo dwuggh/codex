@@ -75,6 +75,88 @@ async fn redirects_honor_sensitive_header_protection_without_changing_default_be
 }
 
 #[tokio::test]
+async fn configured_headers_override_requests_and_are_stripped_on_cross_origin_redirects() {
+    let (other_address, other_server) = spawn_response_server(vec![
+        "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string(),
+    ]);
+    let (address, server) = spawn_response_server(vec![
+        "HTTP/1.1 302 Found\r\nLocation: /same-origin\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string(),
+        format!(
+            "HTTP/1.1 302 Found\r\nLocation: http://{other_address}/other-origin\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        ),
+    ]);
+    let factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault)
+        .with_configured_headers(
+            &format!("http://{address}/backend-api"),
+            HeaderMap::from_iter([
+                (
+                    http::header::AUTHORIZATION,
+                    HeaderValue::from_static("Bearer configured-test-token"),
+                ),
+                (
+                    "x-backend-token".parse().unwrap(),
+                    HeaderValue::from_static("configured-header"),
+                ),
+            ]),
+        );
+    let client = HttpClientBuilder::new()
+        .build_respecting_outbound_proxy_policy(
+            &factory,
+            &format!("http://{address}/start"),
+            ClientRouteClass::Api,
+        )
+        .unwrap();
+    let HttpClientBackend::Routed(pool) = client.backend else {
+        panic!("configured headers require route-aware execution");
+    };
+    let mut request = reqwest::Request::new(
+        Method::GET,
+        format!("http://{address}/start").parse().unwrap(),
+    );
+    request.headers_mut().insert(
+        http::header::AUTHORIZATION,
+        HeaderValue::from_static("Bearer request-test-token"),
+    );
+    request.headers_mut().append(
+        "x-backend-token",
+        HeaderValue::from_static("request-header-one"),
+    );
+    request.headers_mut().append(
+        "x-backend-token",
+        HeaderValue::from_static("request-header-two"),
+    );
+    *request.timeout_mut() = Some(Duration::from_secs(/*secs*/ 5));
+    let response = pool
+        .send_with_resolver(request, |_| {
+            std::future::ready(Ok(OutboundProxyRoute::Direct))
+        })
+        .await
+        .expect("request should follow both redirects");
+    assert_eq!(response.status(), StatusCode::OK);
+    let requests = server.join().expect("same-origin server should finish");
+    for request in requests {
+        let values = |header: &str| {
+            request
+                .lines()
+                .filter_map(|line| line.split_once(':'))
+                .filter(|(name, _)| name.eq_ignore_ascii_case(header))
+                .map(|(_, value)| value.trim())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            values("authorization"),
+            vec!["Bearer configured-test-token"]
+        );
+        assert_eq!(values("x-backend-token"), vec!["configured-header"]);
+    }
+    let requests = other_server
+        .join()
+        .expect("other-origin server should finish");
+    assert!(!requests[0].contains("authorization:"));
+    assert!(!requests[0].contains("x-backend-token:"));
+}
+
+#[tokio::test]
 async fn initial_url_auth_is_built_once_after_routing_and_retained_only_on_same_origin_redirects() {
     let (first_proxy, first_server) = spawn_response_server(vec![
         "HTTP/1.1 302 Found\r\nLocation: http://other:secret@origin.test/same?route=2\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string(),

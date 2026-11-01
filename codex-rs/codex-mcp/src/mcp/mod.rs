@@ -395,8 +395,7 @@ pub(crate) fn is_trusted_chatgpt_mcp_server(
     url::Url::parse(chatgpt_base_url)
         .ok()
         .is_some_and(|staging_url| {
-            staging_url.scheme() == "https"
-                && server_url.origin() == staging_url.origin()
+            staging_url.scheme() == "https" && server_url.origin() == staging_url.origin()
         })
 }
 

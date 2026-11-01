@@ -123,6 +123,85 @@ fn read_http_message(stream: &mut impl Read) -> String {
 }
 
 #[test]
+fn configured_headers_match_http_and_websocket_origins_only() {
+    let headers = HeaderMap::from_iter([(
+        AUTHORIZATION,
+        HeaderValue::from_static("Bearer configured-test-token"),
+    )]);
+    for (base_url, matching, other_origins) in [
+        (
+            "https://backend.example/backend-api",
+            [
+                "https://BACKEND.EXAMPLE:443/other-path",
+                "wss://backend.example/responses",
+            ],
+            [
+                "http://backend.example/backend-api",
+                "ws://backend.example/responses",
+                "https://backend.example:8443/backend-api",
+                "https://other.example/backend-api",
+                "https://sub.backend.example/backend-api",
+            ],
+        ),
+        (
+            "http://backend.example:8080/backend-api",
+            [
+                "http://backend.example:8080/other-path",
+                "ws://BACKEND.EXAMPLE:8080/responses",
+            ],
+            [
+                "https://backend.example:8080/backend-api",
+                "wss://backend.example:8080/responses",
+                "http://backend.example/backend-api",
+                "http://other.example:8080/backend-api",
+                "http://sub.backend.example:8080/backend-api",
+            ],
+        ),
+    ] {
+        let factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault)
+            .with_configured_headers(base_url, headers.clone());
+        assert!(factory.has_configured_headers());
+        for url in matching {
+            assert_eq!(
+                factory.configured_headers_for(&url.parse().unwrap()),
+                Some(&headers),
+                "base {base_url}, destination {url}",
+            );
+        }
+        for url in other_origins {
+            assert_eq!(
+                factory.configured_headers_for(&url.parse().unwrap()),
+                None,
+                "base {base_url}, destination {url}",
+            );
+        }
+    }
+}
+
+#[test]
+fn configured_headers_ignore_empty_headers_and_invalid_base_urls() {
+    for (base_url, headers) in [
+        ("https://backend.example", HeaderMap::new()),
+        (
+            "not a URL",
+            HeaderMap::from_iter([(
+                AUTHORIZATION,
+                HeaderValue::from_static("Bearer configured-test-token"),
+            )]),
+        ),
+    ] {
+        let factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault)
+            .with_configured_headers(base_url, headers);
+        assert!(!factory.has_configured_headers());
+        assert!(
+            factory
+                .configured_headers_for(&"https://backend.example".parse().unwrap())
+                .is_none()
+        );
+    }
+}
+
+#[test]
 fn cloned_factories_share_chatgpt_cookie_stores_without_changing_value_equality() {
     let factory =
         HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault).with_chatgpt_cookies([

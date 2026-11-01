@@ -11,7 +11,7 @@ use wiremock::matchers::header;
 use wiremock::matchers::path;
 
 #[tokio::test]
-async fn cloud_list_only_allows_trusted_credential_destinations() -> Result<()> {
+async fn cloud_list_requires_https_and_preserves_staging_auth() -> Result<()> {
     let server = MockServer::start().await;
     let codex_home = TempDir::new()?;
     std::fs::write(
@@ -63,7 +63,7 @@ async fn cloud_list_only_allows_trusted_credential_destinations() -> Result<()> 
         .get_output()
         .stderr
         .clone();
-    insta::assert_snapshot!(String::from_utf8(output)?, @"Error: CODEX_CLOUD_TASKS_BASE_URL must use a trusted HTTPS origin on port 443, without user information, a query, or a fragment; custom backends cannot use saved ChatGPT credentials");
+    insta::assert_snapshot!(String::from_utf8(output)?, @"Error: CODEX_CLOUD_TASKS_BASE_URL must use HTTPS, without user information, a query, or a fragment");
     assert!(server.received_requests().await.unwrap().is_empty());
 
     // Staging must reach explicit PAT authentication. Reject the synthetic PAT locally so

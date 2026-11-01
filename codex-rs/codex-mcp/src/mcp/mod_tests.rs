@@ -742,6 +742,18 @@ fn effective_mcp_servers_preserve_chatgpt_auth_for_trusted_origins() {
             "https://gov.chatgpt.com/backend-api/",
         ),
         ("https://chatgpt.com", "https://GOV.CHATGPT.COM:443"),
+        (
+            "https://backend.example/backend-api",
+            "https://backend.example/mcp",
+        ),
+        (
+            "https://backend.example:8443/backend-api",
+            "https://backend.example:8443/mcp",
+        ),
+        (
+            "https://backend.example/backend-api",
+            "https://BACKEND.EXAMPLE:443/mcp",
+        ),
     ] {
         let mut config = test_mcp_config(PathBuf::new());
         config.chatgpt_base_url = base_url.to_string();
@@ -767,17 +779,43 @@ fn effective_mcp_servers_preserve_chatgpt_auth_for_trusted_origins() {
 
 #[test]
 fn effective_mcp_servers_reject_untrusted_origins_for_chatgpt_auth() {
-    for url in [
-        "http://gov.chatgpt.com",
-        "https://gov.chatgpt.com:8443",
-        "https://gov.chatgpt.com.evil.example",
-        "https://sub.gov.chatgpt.com",
-        "https://gov.chatgpt.com.",
-        "https://gov.chatgpt.com@evil.example",
-        "https://example.com",
+    for (base_url, url) in [
+        ("https://chatgpt.com", "http://gov.chatgpt.com"),
+        ("https://chatgpt.com", "https://gov.chatgpt.com:8443"),
+        (
+            "https://chatgpt.com",
+            "https://gov.chatgpt.com.evil.example",
+        ),
+        ("https://chatgpt.com", "https://sub.gov.chatgpt.com"),
+        ("https://chatgpt.com", "https://gov.chatgpt.com."),
+        (
+            "https://chatgpt.com",
+            "https://gov.chatgpt.com@evil.example",
+        ),
+        ("https://chatgpt.com", "https://example.com"),
+        (
+            "https://backend.example:8443/backend-api",
+            "https://backend.example/mcp",
+        ),
+        (
+            "https://backend.example:8443/backend-api",
+            "http://backend.example:8443/mcp",
+        ),
+        (
+            "https://backend.example:8443/backend-api",
+            "https://other.example:8443/mcp",
+        ),
+        (
+            "https://backend.example:8443/backend-api",
+            "https://sub.backend.example:8443/mcp",
+        ),
+        (
+            "http://backend.example:8443/backend-api",
+            "http://backend.example:8443/mcp",
+        ),
     ] {
         let mut config = test_mcp_config(PathBuf::new());
-        config.chatgpt_base_url = url.to_string();
+        config.chatgpt_base_url = base_url.to_string();
         let server = codex_apps_mcp_server_config(
             url, /*apps_mcp_product_sku*/ None, /*originator*/ None,
         );
@@ -793,7 +831,7 @@ fn effective_mcp_servers_reject_untrusted_origins_for_chatgpt_auth() {
         assert_eq!(
             effective["untrusted"].config().auth,
             McpServerAuth::OAuth,
-            "server {url}",
+            "backend {base_url}, server {url}",
         );
     }
 }
