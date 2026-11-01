@@ -107,14 +107,14 @@ impl RouteAwareClientPool {
                     request = RequestDraft { request, headers }.build(&client)?;
                     request_url = request.url().to_string();
                     apply_default_headers(request.headers_mut(), &self.default_headers);
-                    if let Some(headers) = self
-                        .http_client_factory
-                        .configured_headers_for(&current_url)
-                    {
-                        apply_default_headers(request.headers_mut(), headers);
-                    }
                 }
                 let current_url = request.url().clone();
+                if let Some(headers) = self
+                    .http_client_factory
+                    .configured_headers_for(&current_url)
+                {
+                    request.headers_mut().extend(headers.clone());
+                }
                 if previous_route
                     .as_ref()
                     .is_some_and(|previous_route| previous_route != &current_route)

@@ -169,12 +169,7 @@ impl WebSocketConnector {
             .map_err(policy_error)?;
         let connect = async {
             if let Some(headers) = self.http_client_factory.configured_headers_for(&url) {
-                for (name, value) in headers {
-                    request
-                        .headers_mut()
-                        .entry(name.clone())
-                        .or_insert(value.clone());
-                }
+                request.headers_mut().extend(headers.clone());
             }
             if !request.headers().contains_key(COOKIE)
                 && let Some(cookies) = self.http_client_factory.chatgpt_cookie_header(&uri)
